@@ -1,0 +1,14 @@
+on:
+  push:
+    paths:
+      - 'cmd/sentry'
+
+jobs:
+  build-sentry:
+    runs-on: nomad
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go build cmd/sentry/sentry.go
