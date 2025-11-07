@@ -51,7 +51,7 @@ func main() {
 	ev, err := nomad_client.EventStream().Stream(
 		context.Background(),
 		map[nomad.Topic][]string{
-			nomad.TopicJob: {}},
+			nomad.TopicJob: {"*"}},
 		0,
 		&nomad.QueryOptions{})
 
