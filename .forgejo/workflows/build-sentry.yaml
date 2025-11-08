@@ -1,7 +1,4 @@
-on:
-  push:
-    paths:
-      - 'cmd/sentry'
+on: [push]
 
 jobs:
   build-sentry:
