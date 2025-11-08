@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 
@@ -21,12 +20,6 @@ func main() {
 		Headers: headers,
 	})
 
-	if err != nil {
-		panic(err)
-	}
-
-	// test client API access
-	_, _, err = nomad_client.Variables().GetVariableItems(fmt.Sprintf("nomad/jobs/%s", os.Getenv("NOMAD_JOB_ID")), &nomad.QueryOptions{})
 	if err != nil {
 		panic(err)
 	}
