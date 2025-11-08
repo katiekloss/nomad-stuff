@@ -1,2 +1,2 @@
 # sentry
-
+This is a pet project I use for monitoring my [Nomad](https://developer.hashicorp.com/nomad) cluster. Monitoring web applications with tools like Uptime Kuma is usually more ideal, but some jobs don't have web interfaces. I also care about issues like jobs failing to schedule or scale properly.
