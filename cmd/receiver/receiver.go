@@ -73,15 +73,16 @@ type NomadMeta struct {
 	Node  string `json:"node"`
 }
 
-type OurMeta struct {
+type AgentMeta struct {
 	Type string `json:"type"`
 }
 
 type LogLine struct {
 	Msg   string     `json:"_msg"`
 	Time  string     `json:"_time"`
+	Pipe  string     `json:"pipe"`
 	Nomad *NomadMeta `json:"nomad"`
-	Agent *OurMeta   `json:"agent"`
+	Agent *AgentMeta `json:"agent"`
 }
 
 func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName string, logName string, cancel *chan struct{}, waitGroup *sync.WaitGroup) {
@@ -95,6 +96,7 @@ func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName 
 		line := &LogLine{
 			Msg:  string(frame.Data),
 			Time: "0",
+			Pipe: logName,
 			Nomad: &NomadMeta{
 				Alloc: alloc.ID,
 				Job:   alloc.JobID,
@@ -102,7 +104,7 @@ func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName 
 				Task:  taskName,
 				Node:  alloc.NodeID,
 			},
-			Agent: &OurMeta{
+			Agent: &AgentMeta{
 				Type: "receiver",
 			},
 		}
@@ -110,7 +112,7 @@ func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName 
 		buf := &bytes.Buffer{}
 		jsonl.NewWriter(buf).Write(line)
 
-		url := fmt.Sprintf("http://%s/insert/jsonline?_stream_fields=nomad.alloc,nomad.job", os.Getenv("VICTORIALOGS_ADDR"))
+		url := fmt.Sprintf("%s/insert/jsonline?_stream_fields=nomad.alloc,nomad.job", os.Getenv("VICTORIALOGS_ADDR"))
 		resp, err := http.Post(url, "application/stream+json", bytes.NewReader(buf.Bytes()))
 
 		if err != nil {
