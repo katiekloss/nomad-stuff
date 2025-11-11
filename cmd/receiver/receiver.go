@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"sync"
 
@@ -107,9 +106,9 @@ type LogLine struct {
 func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName string, logName string, cancel *chan struct{}, waitGroup *sync.WaitGroup) {
 	defer waitGroup.Done()
 
-	http := &http.Client{}
-	vlService := getServiceByName(nomad_client, "victorialogs")
-	targetUrl := fmt.Sprintf("http://%s:%d/insert/jsonline?_stream_fields=nomad.alloc,nomad.job", vlService.Address, vlService.Port)
+	//http := &http.Client{}
+	//vlService := getServiceByName(nomad_client, "victorialogs")
+	//targetUrl := fmt.Sprintf("http://%s:%d/insert/jsonline?_stream_fields=nomad.alloc,nomad.job", vlService.Address, vlService.Port)
 
 	taskLogs, _ := nomad_client.AllocFS().Logs(alloc, true, taskName, logName, "end", 0, *cancel, &nomad.QueryOptions{})
 
@@ -134,16 +133,16 @@ func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName 
 
 		buf := &bytes.Buffer{}
 		jsonl.NewWriter(buf).Write(line)
+		log.Println(buf.String())
+		//resp, err := http.Post(targetUrl, "application/stream+json", bytes.NewReader(buf.Bytes()))
 
-		resp, err := http.Post(targetUrl, "application/stream+json", bytes.NewReader(buf.Bytes()))
+		// if err != nil {
+		// 	panic(err)
+		// }
 
-		if err != nil {
-			panic(err)
-		}
-
-		if resp.StatusCode != 200 {
-			log.Println(resp)
-		}
+		// if resp.StatusCode != 200 {
+		// 	log.Println(resp)
+		// }
 	}
 }
 
