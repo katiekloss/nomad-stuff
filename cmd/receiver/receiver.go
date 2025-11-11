@@ -72,7 +72,12 @@ func logAlloc(nomad_client *nomad.Client, stub *nomad.AllocationListStub, waitGr
 		panic(err)
 	}
 
-	for task_name := range alloc.TaskStates {
+	for task_name, task := range alloc.TaskStates {
+		// skip prestart tasks which won't be restarted
+		if task.State == "dead" && !task.Failed {
+			continue
+		}
+
 		waitGroup.Add(2)
 		go logAllocTask(nomad_client, alloc, task_name, "stdout", &cancel, waitGroup)
 		go logAllocTask(nomad_client, alloc, task_name, "stderr", &cancel, waitGroup)
