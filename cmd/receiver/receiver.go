@@ -26,6 +26,11 @@ func main() {
 		panic(err)
 	}
 
+	this_node, err := nomad_client.Agent().Self()
+	if err != nil {
+		panic(err)
+	}
+
 	allocs, _, err := nomad_client.Allocations().List(&nomad.QueryOptions{})
 	if err != nil {
 		panic(err)
@@ -35,6 +40,10 @@ func main() {
 
 	for _, alloc := range allocs {
 		if alloc.ClientStatus != "pending" && alloc.ClientStatus != "running" {
+			continue
+		}
+
+		if alloc.NodeName != this_node.Member.Name {
 			continue
 		}
 
@@ -93,6 +102,8 @@ func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName 
 	defer waitGroup.Done()
 
 	http := &http.Client{}
+	vlService := getServiceByName(nomad_client, "victorialogs")
+	targetUrl := fmt.Sprintf("http://%s:%s/insert/jsonline?_stream_fields=nomad.alloc,nomad.job", vlService.Address, &vlService.Port)
 
 	taskLogs, _ := nomad_client.AllocFS().Logs(alloc, true, taskName, logName, "end", 0, *cancel, &nomad.QueryOptions{})
 
@@ -118,8 +129,7 @@ func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName 
 		buf := &bytes.Buffer{}
 		jsonl.NewWriter(buf).Write(line)
 
-		url := fmt.Sprintf("%s/insert/jsonline?_stream_fields=nomad.alloc,nomad.job", os.Getenv("VICTORIALOGS_ADDR"))
-		resp, err := http.Post(url, "application/stream+json", bytes.NewReader(buf.Bytes()))
+		resp, err := http.Post(targetUrl, "application/stream+json", bytes.NewReader(buf.Bytes()))
 
 		if err != nil {
 			panic(err)
@@ -129,4 +139,17 @@ func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName 
 			log.Println(resp)
 		}
 	}
+}
+
+func getServiceByName(nomad_client *nomad.Client, name string) *nomad.ServiceRegistration {
+	services, _, err := nomad_client.Services().Get(name, &nomad.QueryOptions{})
+	if err != nil {
+		panic(err)
+	}
+
+	if len(services) == 0 {
+		panic(fmt.Sprintf("Can't find service %s", name))
+	}
+
+	return services[0]
 }
