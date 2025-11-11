@@ -34,6 +34,10 @@ func main() {
 	wg := &sync.WaitGroup{}
 
 	for _, alloc := range allocs {
+		if alloc.ClientStatus != "pending" && alloc.ClientStatus != "running" {
+			continue
+		}
+
 		job, _, err := nomad_client.Jobs().Info(alloc.JobID, &nomad.QueryOptions{})
 		if err != nil {
 			log.Printf("No access to %s job: %s", *job.ID, err.Error())
@@ -91,6 +95,8 @@ func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName 
 	http := &http.Client{}
 
 	taskLogs, _ := nomad_client.AllocFS().Logs(alloc, true, taskName, logName, "end", 0, *cancel, &nomad.QueryOptions{})
+
+	log.Printf("Attached to %s:%s:%s", alloc.ID, taskName, logName)
 
 	for frame := range taskLogs {
 		line := &LogLine{
