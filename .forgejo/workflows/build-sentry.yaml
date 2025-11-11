@@ -1,4 +1,16 @@
-on: [push]
+on:
+  push:
+    paths:
+      - .forgejo/workflows/build-sentry.yaml
+      - cmd/sentry/sentry.go
+      - go.mod
+      - go.sum
+  pull_request:
+    paths:
+      - .forgejo/workflows/build-sentry.yaml
+      - cmd/sentry/sentry.go
+      - go.mod
+      - go.sum
 
 jobs:
   build-sentry:
