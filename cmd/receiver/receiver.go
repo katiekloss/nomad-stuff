@@ -43,7 +43,8 @@ func main() {
 			continue
 		}
 
-		if alloc.NodeName != this_node.Member.Name {
+		// ignore allocs not on this client (there has to be an easier way to get this ID)
+		if alloc.NodeID != this_node.Stats["client"]["node_id"] {
 			continue
 		}
 
