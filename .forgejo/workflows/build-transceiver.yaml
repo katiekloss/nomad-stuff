@@ -1,0 +1,23 @@
+on:
+  push:
+    paths:
+      - .forgejo/workflows/build-transceiver.yaml
+      - cmd/transceiver/transceiver.go
+      - go.mod
+      - go.sum
+  pull_request:
+    paths:
+      - .forgejo/workflows/build-transceiver.yaml
+      - cmd/transceiver/transceiver.go
+      - go.mod
+      - go.sum
+
+jobs:
+  build-sentry:
+    runs-on: nomad
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go build cmd/transceiver/transceiver.go
