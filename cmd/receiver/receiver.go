@@ -109,7 +109,7 @@ func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName 
 
 	http := &http.Client{}
 	vlService := getServiceByName(nomad_client, "victorialogs")
-	targetUrl := fmt.Sprintf("http://%s:%s/insert/jsonline?_stream_fields=nomad.alloc,nomad.job", vlService.Address, &vlService.Port)
+	targetUrl := fmt.Sprintf("http://%s:%d/insert/jsonline?_stream_fields=nomad.alloc,nomad.job", vlService.Address, vlService.Port)
 
 	taskLogs, _ := nomad_client.AllocFS().Logs(alloc, true, taskName, logName, "end", 0, *cancel, &nomad.QueryOptions{})
 
