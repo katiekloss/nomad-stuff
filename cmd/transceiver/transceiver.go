@@ -25,10 +25,8 @@ func main() {
 		panic(err)
 	}
 
-	this_node, err := nomad_client.Agent().Self()
-	if err != nil {
-		panic(err)
-	}
+	// added in the job spec, eventually I'll see if I can add this to Nomad
+	node_id := os.Getenv("NOMAD_NODE_ID")
 
 	allocs, _, err := nomad_client.Allocations().List(&nomad.QueryOptions{})
 	if err != nil {
@@ -43,7 +41,7 @@ func main() {
 		}
 
 		// ignore allocs not on this client (there has to be an easier way to get this ID)
-		if alloc.NodeID != this_node.Stats["client"]["node_id"] {
+		if alloc.NodeID != node_id {
 			continue
 		}
 
@@ -66,6 +64,7 @@ func logAlloc(nomad_client *nomad.Client, stub *nomad.AllocationListStub, waitGr
 	defer waitGroup.Done()
 
 	cancel := make(chan struct{})
+
 	alloc, _, err := nomad_client.Allocations().Info(stub.ID, &nomad.QueryOptions{})
 	if err != nil {
 		panic(err)
