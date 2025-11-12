@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -31,7 +32,11 @@ func main() {
 		panic(err)
 	}
 
+	var max_alloc_index uint64
 	for _, alloc := range allocs {
+		if max_alloc_index < alloc.ModifyIndex {
+			max_alloc_index = alloc.ModifyIndex
+		}
 		if alloc.ClientStatus != "pending" && alloc.ClientStatus != "running" {
 			continue
 		}
@@ -47,13 +52,18 @@ func main() {
 			continue
 		}
 
+		alloc, _, err := nomad_client.Allocations().Info(alloc.ID, &nomad.QueryOptions{})
+		if err != nil {
+			panic(err)
+		}
+
 		go logAlloc(nomad_client, alloc)
 	}
 
-	watchForNewAllocs(nomad_client)
+	watchForNewAllocs(nomad_client, max_alloc_index)
 }
 
-func watchForNewAllocs(nomad_client *nomad.Client) {
+func watchForNewAllocs(nomad_client *nomad.Client, from uint64) {
 	events, err := nomad_client.EventStream().Stream(
 		context.Background(),
 		map[nomad.Topic][]string{
@@ -68,18 +78,24 @@ func watchForNewAllocs(nomad_client *nomad.Client) {
 
 	for frame := range events {
 		for _, ev := range frame.Events {
-			log.Print(ev)
+			if ev.Index <= from || ev.Type != "AllocationUpdated" { // or if it's not an allocation event, if we start listening to others
+				continue
+			}
+
+			alloc, _ := ev.Allocation()
+			if alloc.TaskStates == nil {
+				// This gets fired without any tasks when the allocation is first scheduled
+				continue
+			}
+
+			log.Printf("Logging new alloc %s", alloc.ID)
+			// logAlloc(nomad_client, alloc)
 		}
 	}
 }
 
-func logAlloc(nomad_client *nomad.Client, stub *nomad.AllocationListStub) {
+func logAlloc(nomad_client *nomad.Client, alloc *nomad.Allocation) {
 	cancel := make(chan struct{})
-
-	alloc, _, err := nomad_client.Allocations().Info(stub.ID, &nomad.QueryOptions{})
-	if err != nil {
-		panic(err)
-	}
 
 	for task_name, task := range alloc.TaskStates {
 		// skip prestart tasks which won't be restarted
@@ -122,44 +138,61 @@ func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName 
 
 	log.Printf("Attached to %s:%s:%s", alloc.ID, taskName, logName)
 
+	iterateLogFrames := func(logs <-chan *nomad.StreamFrame) {
+		for frame := range logs {
+			line := &LogLine{
+				Msg:  string(frame.Data)[0:10],
+				Time: "0",
+				Pipe: logName,
+				Nomad: &NomadMeta{
+					Alloc: alloc.ID,
+					Job:   alloc.JobID,
+					Group: alloc.TaskGroup,
+					Task:  taskName,
+					Node:  alloc.NodeID,
+				},
+				Agent: &AgentMeta{
+					Type: "transceiver",
+				},
+			}
+
+			log.Print(line)
+		}
+	}
+
+	// buf := &bytes.Buffer{}
+	// jsonl.NewWriter(buf).Write(line)
+	// log.Println(buf.String())
+	//resp, err := http.Post(targetUrl, "application/stream+json", bytes.NewReader(buf.Bytes()))
+
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	// if resp.StatusCode != 200 {
+	// 	log.Println(resp)
+	// }
+
+	go iterateLogFrames(taskLogs)
+
 	go func() {
-		for err := range errs {
-			panic(err)
+		var restart bool
+		for e := range errs {
+			var err nomad.UnexpectedResponseError
+			if errors.As(e, &err) && err.StatusCode() == 404 {
+				restart = true
+				break
+			} else {
+				panic(e)
+			}
+		}
+
+		if restart {
+			log.Printf("Task %s isn't started yet, re-attaching log listener?", taskName)
+			// i don't know go, does this introduce the possibility of a stack overflow?
+			// go logAllocTask(nomad_client, alloc, taskName, logName, cancel)
 		}
 	}()
-
-	for frame := range taskLogs {
-		line := &LogLine{
-			Msg:  string(frame.Data),
-			Time: "0",
-			Pipe: logName,
-			Nomad: &NomadMeta{
-				Alloc: alloc.ID,
-				Job:   alloc.JobID,
-				Group: alloc.TaskGroup,
-				Task:  taskName,
-				Node:  alloc.NodeID,
-			},
-			Agent: &AgentMeta{
-				Type: "transceiver",
-			},
-		}
-
-		log.Print(line)
-
-		// buf := &bytes.Buffer{}
-		// jsonl.NewWriter(buf).Write(line)
-		// log.Println(buf.String())
-		//resp, err := http.Post(targetUrl, "application/stream+json", bytes.NewReader(buf.Bytes()))
-
-		// if err != nil {
-		// 	panic(err)
-		// }
-
-		// if resp.StatusCode != 200 {
-		// 	log.Println(resp)
-		// }
-	}
 }
 
 func getServiceByName(nomad_client *nomad.Client, name string) *nomad.ServiceRegistration {
