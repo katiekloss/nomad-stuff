@@ -2,10 +2,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log"
 	"os"
-	"sync"
 
 	nomad "github.com/hashicorp/nomad/api"
 	"github.com/simonfrey/jsonl"
@@ -33,8 +33,6 @@ func main() {
 		panic(err)
 	}
 
-	wg := &sync.WaitGroup{}
-
 	for _, alloc := range allocs {
 		if alloc.ClientStatus != "pending" && alloc.ClientStatus != "running" {
 			continue
@@ -53,16 +51,33 @@ func main() {
 			continue
 		}
 
-		wg.Add(1)
-		go logAlloc(nomad_client, alloc, wg)
+		go logAlloc(nomad_client, alloc)
 	}
 
-	wg.Wait()
+	watchForNewAllocs(nomad_client)
 }
 
-func logAlloc(nomad_client *nomad.Client, stub *nomad.AllocationListStub, waitGroup *sync.WaitGroup) {
-	defer waitGroup.Done()
+func watchForNewAllocs(nomad_client *nomad.Client) {
+	events, err := nomad_client.EventStream().Stream(
+		context.Background(),
+		map[nomad.Topic][]string{
+			nomad.TopicAllocation: {"*"}, // can remove the wildcard in nomad 1.11.1
+		},
+		0,
+		&nomad.QueryOptions{})
 
+	if err != nil {
+		panic(err)
+	}
+
+	for frame := range events {
+		for _, ev := range frame.Events {
+			fmt.Print(ev)
+		}
+	}
+}
+
+func logAlloc(nomad_client *nomad.Client, stub *nomad.AllocationListStub) {
 	cancel := make(chan struct{})
 
 	alloc, _, err := nomad_client.Allocations().Info(stub.ID, &nomad.QueryOptions{})
@@ -76,9 +91,8 @@ func logAlloc(nomad_client *nomad.Client, stub *nomad.AllocationListStub, waitGr
 			continue
 		}
 
-		waitGroup.Add(2)
-		go logAllocTask(nomad_client, alloc, task_name, "stdout", &cancel, waitGroup)
-		go logAllocTask(nomad_client, alloc, task_name, "stderr", &cancel, waitGroup)
+		go logAllocTask(nomad_client, alloc, task_name, "stdout", &cancel)
+		go logAllocTask(nomad_client, alloc, task_name, "stderr", &cancel)
 	}
 }
 
@@ -102,8 +116,7 @@ type LogLine struct {
 	Agent *AgentMeta `json:"agent"`
 }
 
-func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName string, logName string, cancel *chan struct{}, waitGroup *sync.WaitGroup) {
-	defer waitGroup.Done()
+func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName string, logName string, cancel *chan struct{}) {
 
 	//http := &http.Client{}
 	//vlService := getServiceByName(nomad_client, "victorialogs")
