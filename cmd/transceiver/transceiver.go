@@ -1,14 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log"
 	"os"
 
 	nomad "github.com/hashicorp/nomad/api"
-	"github.com/simonfrey/jsonl"
 )
 
 func main() {
@@ -47,8 +45,6 @@ func main() {
 		if err != nil {
 			log.Printf("No access to %s job: %s", *job.ID, err.Error())
 			continue
-		} else if *job.ID == "receiver" {
-			continue
 		}
 
 		go logAlloc(nomad_client, alloc)
@@ -72,7 +68,7 @@ func watchForNewAllocs(nomad_client *nomad.Client) {
 
 	for frame := range events {
 		for _, ev := range frame.Events {
-			fmt.Print(ev)
+			log.Print(ev)
 		}
 	}
 }
@@ -122,9 +118,15 @@ func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName 
 	//vlService := getServiceByName(nomad_client, "victorialogs")
 	//targetUrl := fmt.Sprintf("http://%s:%d/insert/jsonline?_stream_fields=nomad.alloc,nomad.job", vlService.Address, vlService.Port)
 
-	taskLogs, _ := nomad_client.AllocFS().Logs(alloc, true, taskName, logName, "end", 0, *cancel, &nomad.QueryOptions{})
+	taskLogs, errs := nomad_client.AllocFS().Logs(alloc, true, taskName, logName, "end", 0, *cancel, &nomad.QueryOptions{})
 
 	log.Printf("Attached to %s:%s:%s", alloc.ID, taskName, logName)
+
+	go func() {
+		for err := range errs {
+			panic(err)
+		}
+	}()
 
 	for frame := range taskLogs {
 		line := &LogLine{
@@ -139,13 +141,15 @@ func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName 
 				Node:  alloc.NodeID,
 			},
 			Agent: &AgentMeta{
-				Type: "receiver",
+				Type: "transceiver",
 			},
 		}
 
-		buf := &bytes.Buffer{}
-		jsonl.NewWriter(buf).Write(line)
-		log.Println(buf.String())
+		log.Print(line)
+
+		// buf := &bytes.Buffer{}
+		// jsonl.NewWriter(buf).Write(line)
+		// log.Println(buf.String())
 		//resp, err := http.Post(targetUrl, "application/stream+json", bytes.NewReader(buf.Bytes()))
 
 		// if err != nil {
