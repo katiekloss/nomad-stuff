@@ -137,6 +137,11 @@ func (transceiver *Transceiver) logAllocTask(alloc *nomad.Allocation, taskName s
 
 	log.Printf("Attached to %s:%s:%s", alloc.ID, taskName, logName)
 
+	logFile, err := os.Create(fmt.Sprintf("%s-%s-%s.log", alloc.ID, taskName, logName))
+	if err != nil {
+		panic(err)
+	}
+
 	iterateLogFrames := func(logs <-chan *nomad.StreamFrame) {
 		for frame := range logs {
 			line := &LogLine{
@@ -157,7 +162,7 @@ func (transceiver *Transceiver) logAllocTask(alloc *nomad.Allocation, taskName s
 
 			buf := &bytes.Buffer{}
 			jsonl.NewWriter(buf).Write(line)
-			log.Println(buf.String())
+			fmt.Fprintln(logFile, buf.String())
 		}
 	}
 
