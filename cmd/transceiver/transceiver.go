@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -138,15 +137,22 @@ func (transceiver *Transceiver) logAllocTask(alloc *nomad.Allocation, taskName s
 
 	log.Printf("Attached to %s:%s:%s", alloc.ID, taskName, logName)
 
-	logFile, err := os.Create(fmt.Sprintf("%s-%s-%s.log", alloc.ID, taskName, logName))
+	logFile, err := os.OpenFile(fmt.Sprintf("%s-%s-%s.log", alloc.ID, taskName, logName), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		panic(err)
 	}
-	defer logFile.Close()
+
+	writer := jsonl.NewWriter(logFile)
 
 	iterateLogFrames := func(logs <-chan *nomad.StreamFrame) {
+		defer writer.Close()
 		for frame := range logs {
 			for line := range strings.Lines(string(frame.Data)) {
+				line = strings.TrimSuffix(line, "\n")
+				if len(line) == 0 {
+					continue
+				}
+
 				structured := &LogLine{
 					Msg:  line,
 					Time: "0",
@@ -163,9 +169,10 @@ func (transceiver *Transceiver) logAllocTask(alloc *nomad.Allocation, taskName s
 					},
 				}
 
-				buf := &bytes.Buffer{}
-				jsonl.NewWriter(buf).Write(structured)
-				fmt.Fprintln(logFile, buf.String())
+				err := writer.Write(structured)
+				if err != nil {
+					panic(err)
+				}
 			}
 		}
 	}
