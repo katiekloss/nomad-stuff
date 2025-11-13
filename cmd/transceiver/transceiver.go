@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	nomad "github.com/hashicorp/nomad/api"
 	"github.com/simonfrey/jsonl"
@@ -141,28 +142,31 @@ func (transceiver *Transceiver) logAllocTask(alloc *nomad.Allocation, taskName s
 	if err != nil {
 		panic(err)
 	}
+	defer logFile.Close()
 
 	iterateLogFrames := func(logs <-chan *nomad.StreamFrame) {
 		for frame := range logs {
-			line := &LogLine{
-				Msg:  string(frame.Data),
-				Time: "0",
-				Pipe: logName,
-				Nomad: &NomadMeta{
-					Alloc: alloc.ID,
-					Job:   alloc.JobID,
-					Group: alloc.TaskGroup,
-					Task:  taskName,
-					Node:  alloc.NodeID,
-				},
-				Agent: &AgentMeta{
-					Type: "transceiver",
-				},
-			}
+			for line := range strings.Lines(string(frame.Data)) {
+				structured := &LogLine{
+					Msg:  line,
+					Time: "0",
+					Pipe: logName,
+					Nomad: &NomadMeta{
+						Alloc: alloc.ID,
+						Job:   alloc.JobID,
+						Group: alloc.TaskGroup,
+						Task:  taskName,
+						Node:  alloc.NodeID,
+					},
+					Agent: &AgentMeta{
+						Type: "transceiver",
+					},
+				}
 
-			buf := &bytes.Buffer{}
-			jsonl.NewWriter(buf).Write(line)
-			fmt.Fprintln(logFile, buf.String())
+				buf := &bytes.Buffer{}
+				jsonl.NewWriter(buf).Write(structured)
+				fmt.Fprintln(logFile, buf.String())
+			}
 		}
 	}
 
