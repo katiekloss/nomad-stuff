@@ -183,7 +183,7 @@ func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName 
 				restart = true
 				break
 			} else {
-				panic(e)
+				log.Printf("Error streaming from %s:%s:%s: %s", alloc.ID, taskName, logName, err)
 			}
 		}
 
