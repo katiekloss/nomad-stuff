@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,7 +9,13 @@ import (
 	"os"
 
 	nomad "github.com/hashicorp/nomad/api"
+	"github.com/simonfrey/jsonl"
 )
+
+type Transceiver struct {
+	NodeId string
+	Nomad  *nomad.Client
+}
 
 func main() {
 	var headers = map[string][]string{
@@ -27,7 +34,12 @@ func main() {
 	// added in the job spec, eventually I'll see if I can add this to Nomad
 	node_id := os.Getenv("NOMAD_NODE_ID")
 
-	allocs, _, err := nomad_client.Allocations().List(&nomad.QueryOptions{})
+	self := &Transceiver{
+		NodeId: node_id,
+		Nomad:  nomad_client,
+	}
+
+	allocs, _, err := nomad_client.Nodes().Allocations(node_id, &nomad.QueryOptions{})
 	if err != nil {
 		panic(err)
 	}
@@ -37,34 +49,19 @@ func main() {
 		if max_alloc_index < alloc.ModifyIndex {
 			max_alloc_index = alloc.ModifyIndex
 		}
+
 		if alloc.ClientStatus != "pending" && alloc.ClientStatus != "running" {
 			continue
 		}
 
-		// ignore allocs not on this client (there has to be an easier way to get this ID)
-		if alloc.NodeID != node_id {
-			continue
-		}
-
-		job, _, err := nomad_client.Jobs().Info(alloc.JobID, &nomad.QueryOptions{})
-		if err != nil {
-			log.Printf("No access to %s job: %s", *job.ID, err.Error())
-			continue
-		}
-
-		alloc, _, err := nomad_client.Allocations().Info(alloc.ID, &nomad.QueryOptions{})
-		if err != nil {
-			panic(err)
-		}
-
-		go logAlloc(nomad_client, alloc)
+		go self.logAlloc(alloc)
 	}
 
-	watchForNewAllocs(nomad_client, max_alloc_index)
+	self.watchForNewAllocs(max_alloc_index)
 }
 
-func watchForNewAllocs(nomad_client *nomad.Client, from uint64) {
-	events, err := nomad_client.EventStream().Stream(
+func (transceiver *Transceiver) watchForNewAllocs(from uint64) {
+	events, err := transceiver.Nomad.EventStream().Stream(
 		context.Background(),
 		map[nomad.Topic][]string{
 			nomad.TopicAllocation: {"*"}, // can remove the wildcard in nomad 1.11.1
@@ -86,15 +83,17 @@ func watchForNewAllocs(nomad_client *nomad.Client, from uint64) {
 			if alloc.TaskStates == nil {
 				// This gets fired without any tasks when the allocation is first scheduled
 				continue
+			} else if alloc.NodeID != transceiver.NodeId {
+				continue
 			}
 
 			log.Printf("Logging new alloc %s", alloc.ID)
-			// logAlloc(nomad_client, alloc)
+			transceiver.logAlloc(alloc)
 		}
 	}
 }
 
-func logAlloc(nomad_client *nomad.Client, alloc *nomad.Allocation) {
+func (transceiver *Transceiver) logAlloc(alloc *nomad.Allocation) {
 	cancel := make(chan struct{})
 
 	for task_name, task := range alloc.TaskStates {
@@ -103,8 +102,8 @@ func logAlloc(nomad_client *nomad.Client, alloc *nomad.Allocation) {
 			continue
 		}
 
-		go logAllocTask(nomad_client, alloc, task_name, "stdout", &cancel)
-		go logAllocTask(nomad_client, alloc, task_name, "stderr", &cancel)
+		go transceiver.logAllocTask(alloc, task_name, "stdout", &cancel)
+		go transceiver.logAllocTask(alloc, task_name, "stderr", &cancel)
 	}
 }
 
@@ -128,13 +127,13 @@ type LogLine struct {
 	Agent *AgentMeta `json:"agent"`
 }
 
-func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName string, logName string, cancel *chan struct{}) {
+func (transceiver *Transceiver) logAllocTask(alloc *nomad.Allocation, taskName string, logName string, cancel *chan struct{}) {
 
 	//http := &http.Client{}
 	//vlService := getServiceByName(nomad_client, "victorialogs")
 	//targetUrl := fmt.Sprintf("http://%s:%d/insert/jsonline?_stream_fields=nomad.alloc,nomad.job", vlService.Address, vlService.Port)
 
-	taskLogs, errs := nomad_client.AllocFS().Logs(alloc, true, taskName, logName, "end", 0, *cancel, &nomad.QueryOptions{})
+	taskLogs, errs := transceiver.Nomad.AllocFS().Logs(alloc, true, taskName, logName, "end", 0, *cancel, &nomad.QueryOptions{})
 
 	log.Printf("Attached to %s:%s:%s", alloc.ID, taskName, logName)
 
@@ -156,13 +155,13 @@ func logAllocTask(nomad_client *nomad.Client, alloc *nomad.Allocation, taskName 
 				},
 			}
 
-			log.Print(line)
+			buf := &bytes.Buffer{}
+			jsonl.NewWriter(buf).Write(line)
+			log.Println(buf.String())
 		}
 	}
 
-	// buf := &bytes.Buffer{}
-	// jsonl.NewWriter(buf).Write(line)
-	// log.Println(buf.String())
+	//
 	//resp, err := http.Post(targetUrl, "application/stream+json", bytes.NewReader(buf.Bytes()))
 
 	// if err != nil {
