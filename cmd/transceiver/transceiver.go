@@ -140,7 +140,7 @@ func (transceiver *Transceiver) logAllocTask(alloc *nomad.Allocation, taskName s
 	iterateLogFrames := func(logs <-chan *nomad.StreamFrame) {
 		for frame := range logs {
 			line := &LogLine{
-				Msg:  string(frame.Data)[0:10],
+				Msg:  string(frame.Data),
 				Time: "0",
 				Pipe: logName,
 				Nomad: &NomadMeta{
